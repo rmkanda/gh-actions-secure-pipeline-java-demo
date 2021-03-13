@@ -79,7 +79,7 @@ jobs:
       with:
         args: --severity-threshold=high
   sast:
-    name: Static Code Analysis with FindSecBugs
+    name: Static Code Analysis
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -120,7 +120,7 @@ jobs:
       with:
         sarif_file: ${{ steps.scan.outputs.sarif }}
   container-lint:
-    name: Run Dockle
+    name: Lint Dockerfile
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -130,7 +130,7 @@ jobs:
         exit-code: '1'
         exit-level: FATAL
   k8s-lint:
-    name: Run KubeSec
+    name: K8s Hardening
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -141,7 +141,7 @@ jobs:
           input: pod.yaml
           exit-code: "0"
   license_check:
-    name: Run License Check
+    name: License Checker
     runs-on: ubuntu-latest
     needs: build
     steps:
