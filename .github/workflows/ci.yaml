@@ -7,6 +7,26 @@ on:
     branches: [ main ]
 
 jobs:
+  setup:
+    name: Setup & Install
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 11 (LTS)
+      uses: actions/setup-java@v1
+      with:
+        java-version: 11
+        architecture: x64
+    - name: Restore Maven cache
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+    - run: java --version && mvn --version
+    - name: Install Dependencies
+      run: mvn install -DskipTests -Dspotbugs.skip=true -Ddependency-check.skip=true
+
   secret-scan:
     name: Secret scanner
     runs-on: ubuntu-latest
@@ -28,6 +48,7 @@ jobs:
   build:
     name: Build & Unit Tests
     runs-on: ubuntu-latest
+    needs: [ setup, secret-scan ]
     steps:
     - uses: actions/checkout@v2
     - name: Set up JDK 11 (LTS)
@@ -66,9 +87,9 @@ jobs:
     - run: echo ${{ steps.docker_build.outputs.digest }}
 
   oss-scan:
-    name: OSS Scan
+    name: SCA - Dependency Checker
     runs-on: ubuntu-latest
-    needs: build
+    needs: [ setup, secret-scan ]
     steps:
     - uses: actions/checkout@v2
     - name: Run Snyk to check for vulnerabilities
@@ -78,6 +99,32 @@ jobs:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
         args: --severity-threshold=high
+
+  license_check:
+    name: License Checker
+    runs-on: ubuntu-latest
+    needs: [ setup, secret-scan ]
+    steps:
+    - name: Checkout the code
+      uses: actions/checkout@master
+    - name: Set up JDK 11 (LTS)
+      uses: actions/setup-java@v1
+      with:
+        java-version: 11
+        architecture: x64
+    - name: Restore Maven cache
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 2.7.2
+        bundler-cache: false
+    - run: gem install license_finder
+    - run: license_finder
+
   sast:
     name: Static Code Analysis
     runs-on: ubuntu-latest
@@ -112,7 +159,7 @@ jobs:
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
 
-  container:
+  container-scan:
     name: Scan Container Image
     runs-on: ubuntu-latest
     needs: build
@@ -128,6 +175,7 @@ jobs:
       uses: github/codeql-action/upload-sarif@v1
       with:
         sarif_file: ${{ steps.scan.outputs.sarif }}
+
   container-lint:
     name: Lint Dockerfile
     runs-on: ubuntu-latest
@@ -138,6 +186,7 @@ jobs:
         image: ghcr.io/${{ github.repository }}/app:latest
         exit-code: '1'
         exit-level: FATAL
+
   k8s-lint:
     name: K8s Hardening
     runs-on: ubuntu-latest
@@ -149,34 +198,18 @@ jobs:
         with:
           input: pod.yaml
           exit-code: "0"
-  license_check:
-    name: License Checker
+
+  deploy:
+    name: Deploy to Test Environment
     runs-on: ubuntu-latest
-    needs: build
+    needs: [sast, container-scan, container-lint, k8s-lint, oss-scan, license_check ]
     steps:
-    - name: Checkout the code
-      uses: actions/checkout@master
-    - name: Set up JDK 11 (LTS)
-      uses: actions/setup-java@v1
-      with:
-        java-version: 11
-        architecture: x64
-    - name: Restore Maven cache
-      uses: actions/cache@v2
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
-    - uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: 2.7.2
-        bundler-cache: false
-    - run: gem install license_finder
-    - run: license_finder
+      - run: echo done
+
   dast:
     runs-on: ubuntu-latest
     name: DAST
-    needs: build
+    needs: deploy
     steps:
       - name: Checkout
         uses: actions/checkout@v2
